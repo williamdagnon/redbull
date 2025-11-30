@@ -1,6 +1,6 @@
 import express from 'express';
-import cors from 'cors';
 import dotenv from 'dotenv';
+
 import authRoutes from './routes/auth.routes';
 import setupRoutes from './routes/setup.routes';
 import vipRoutes from './routes/vip.routes';
@@ -11,6 +11,7 @@ import adminRoutes from './routes/admin.routes';
 import rechargeRoutes from './routes/recharge.routes';
 import inpayRoutes from './routes/inpay.routes';
 import giftRoutes from './routes/gift.routes';
+
 import { startVIPEarningsJob } from './jobs/vip-earnings.job';
 import { testConnection } from './config/database';
 
@@ -22,35 +23,33 @@ const PORT = process.env.PORT || 3001;
 // ----------------------
 // CORS Configuration
 // ----------------------
-
-// Liste des frontends autorisés
 const allowedOrigins = [
   'https://tender-charm-production-865b.up.railway.app',
-  'http://localhost:3000' // si tu testes localement
+  'http://localhost:3000' // pour tests locaux
 ];
 
-const corsOptions = {
-  origin: (origin: string | undefined, callback: Function) => {
-    if (!origin) return callback(null, true); // postman, server-to-server
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true, // autoriser cookies / JWT
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 200
-};
+// Middleware CORS dynamique
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+    );
+  }
 
-app.use(cors(corsOptions));
-
-// Handle preflight requests
-app.options('*', cors(corsOptions));
+  // Preflight requests doivent répondre 200
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // ----------------------
-// Middleware
+// Middleware pour JSON
 // ----------------------
 app.use(express.json({
   verify: (req: any, res, buf: Buffer) => {
@@ -95,10 +94,13 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // Start server
 // ----------------------
 app.listen(PORT, async () => {
-  console.log(`🚀 APUIC Capital Backend running on port ${PORT}`);
+  console.log(`🚀 Backend running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 
+  // Test database connection
   await testConnection();
+
+  // Start VIP cron jobs
   startVIPEarningsJob();
 });
 
