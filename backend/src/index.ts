@@ -19,21 +19,39 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware - CORS Configuration
-// Allow CORS from all origins - authentication is handled via JWT tokens
+// ----------------------
+// CORS Configuration
+// ----------------------
+
+// Liste des frontends autorisés
+const allowedOrigins = [
+  'https://tender-charm-production-865b.up.railway.app',
+  'http://localhost:3000' // si tu testes localement
+];
+
 const corsOptions = {
-  origin: true, // Allow all origins
-  credentials: true,
+  origin: (origin: string | undefined, callback: Function) => {
+    if (!origin) return callback(null, true); // postman, server-to-server
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // autoriser cookies / JWT
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 200,
+  optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
 
-// Handle preflight requests explicitly
+// Handle preflight requests
 app.options('*', cors(corsOptions));
-// Capture raw body on JSON parse so payment callbacks can be signature-verified
+
+// ----------------------
+// Middleware
+// ----------------------
 app.use(express.json({
   verify: (req: any, res, buf: Buffer) => {
     if (buf && buf.length) req.rawBody = buf.toString('utf8');
@@ -41,12 +59,16 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true }));
 
+// ----------------------
 // Health check
+// ----------------------
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ----------------------
 // Routes
+// ----------------------
 app.use('/api/auth', authRoutes);
 app.use('/api/setup', setupRoutes);
 app.use('/api/vip', vipRoutes);
@@ -58,7 +80,9 @@ app.use('/api/recharge', rechargeRoutes);
 app.use('/api/inpay', inpayRoutes);
 app.use('/api/gift', giftRoutes);
 
+// ----------------------
 // Error handler
+// ----------------------
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);
   res.status(err.status || 500).json({
@@ -67,15 +91,14 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
+// ----------------------
 // Start server
+// ----------------------
 app.listen(PORT, async () => {
   console.log(`🚀 APUIC Capital Backend running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  
-  // Test database connection
+
   await testConnection();
-  
-  // Start cron jobs
   startVIPEarningsJob();
 });
 
