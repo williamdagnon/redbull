@@ -20,26 +20,19 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware - CORS Configuration
-const allowedOrigins = [
-  'http://localhost:5173', // Local dev frontend
-  'http://localhost:3000', // Local dev frontend alt
-  process.env.FRONTEND_URL, // Railway frontend URL
-  'https://tender-charm-production-865b.up.railway.app', // Your current Railway frontend
-].filter(Boolean);
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+// Allow CORS from all origins - authentication is handled via JWT tokens
+const corsOptions = {
+  origin: true, // Allow all origins
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
 // Capture raw body on JSON parse so payment callbacks can be signature-verified
 app.use(express.json({
   verify: (req: any, res, buf: Buffer) => {
