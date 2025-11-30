@@ -20,45 +20,95 @@ dotenv.config();
 
 const app = express();
 
-/* ✅ FIX IMPORTANT FOR RAILWAY */
-const PORT = Number(process.env.PORT);
+/* ================================
+   🔴 PORT RAILWAY – OBLIGATOIRE
+================================= */
+const PORT = process.env.PORT;
 
-/* ✅ LOG to check if file is executed */
-console.log('🚨 SERVER FILE LOADED');
+if (!PORT) {
+  console.error('❌ ERROR: process.env.PORT is not defined');
+  process.exit(1);
+}
 
-/* ✅ CORS - proper clean version */
-const corsOptions = {
-  origin: [
-    'https://tender-charm-production-865b.up.railway.app', // frontend railway
-    process.env.FRONTEND_URL || ''
-  ],
+/* ================================
+   🟡 CORS CONFIGURATION
+================================= */
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // Autorise toutes les origines Railway + Localhost
+    if (!origin) return callback(null, true);
+
+    const allowed = [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'https://tender-charm-production-865b.up.railway.app'
+    ];
+
+    if (allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Autorise tous pour l’instant (dev)
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 };
 
+/* ================================
+   🟢 MIDDLEWARES
+================================= */
 app.use(cors(corsOptions));
 
-/* ✅ Handle preflight properly */
+// Répond correctement aux requêtes OPTIONS (preflight)
 app.options('*', cors(corsOptions));
 
-/* ✅ Body parsers */
 app.use(express.json({
   verify: (req: any, res, buf: Buffer) => {
-    if (buf && buf.length) req.rawBody = buf.toString('utf8');
+    if (buf && buf.length) {
+      req.rawBody = buf.toString('utf8');
+    }
   }
 }));
+
 app.use(express.urlencoded({ extended: true }));
 
-/* ✅ Health check */
+// Sécurité CORS supplémentaire (fallback)
+app.use((req, res, next) => {
+  const origin = req.headers.origin || '*';
+
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header(
+    'Access-Control-Allow-Headers',
+    'Origin,Content-Type,Accept,Authorization,X-Requested-With'
+  );
+  res.header(
+    'Access-Control-Allow-Methods',
+    'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+  );
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  next();
+});
+
+/* ================================
+   🔵 HEALTH CHECK
+================================= */
 app.get('/health', (req, res) => {
-  res.json({
+  res.status(200).json({
     status: 'ok',
+    service: 'APUIC Capital Backend',
     timestamp: new Date().toISOString()
   });
 });
 
-/* ✅ Routes */
+/* ================================
+   🔵 ROUTES
+================================= */
 app.use('/api/auth', authRoutes);
 app.use('/api/setup', setupRoutes);
 app.use('/api/vip', vipRoutes);
@@ -70,35 +120,42 @@ app.use('/api/recharge', rechargeRoutes);
 app.use('/api/inpay', inpayRoutes);
 app.use('/api/gift', giftRoutes);
 
-/* ✅ Error handler */
+/* ================================
+   🔴 ERROR HANDLER
+================================= */
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('❌ Error:', err);
+  console.error('❌ API ERROR:', err);
+
   res.status(err.status || 500).json({
     success: false,
     error: err.message || 'Internal server error'
   });
 });
 
-/* ✅ START SERVER (Railway ready) */
-app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`🚀 Backend running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+/* ================================
+   🟢 SERVER START
+================================= */
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`🚀 API RUNNING ON PORT: ${PORT}`);
+  console.log(`🌍 ENV: ${process.env.NODE_ENV || 'development'}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-  /* ✅ Database test — non blocking */
-  try {
-    await testConnection();
-    console.log('✅ Database connected');
-  } catch (err: any) {
-    console.error('⚠️ Database warning:', err.message);
-  }
+  // NON BLOQUANT (ne peut plus casser ton serveur)
+  setTimeout(() => {
 
-  /* ✅ Cron */
-  try {
-    startVIPEarningsJob();
-    console.log('✅ VIP earnings job started');
-  } catch (err: any) {
-    console.error('⚠️ Cron warning:', err.message);
-  }
+    testConnection()
+      .then(() => console.log('✅ Database connected'))
+      .catch(err => console.error('⚠️ Database warning:', err.message));
+
+    try {
+      startVIPEarningsJob();
+      console.log('✅ VIP job started');
+    } catch (err: any) {
+      console.error('⚠️ VIP job warning:', err.message);
+    }
+
+  }, 3000);
 });
 
 export default app;
