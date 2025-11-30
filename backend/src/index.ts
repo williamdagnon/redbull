@@ -19,8 +19,27 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(cors());
+// Middleware - CORS Configuration
+const allowedOrigins = [
+  'http://localhost:5173', // Local dev frontend
+  'http://localhost:3000', // Local dev frontend alt
+  process.env.FRONTEND_URL, // Railway frontend URL
+  'https://tender-charm-production-865b.up.railway.app', // Your current Railway frontend
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 // Capture raw body on JSON parse so payment callbacks can be signature-verified
 app.use(express.json({
   verify: (req: any, res, buf: Buffer) => {
