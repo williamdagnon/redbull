@@ -90,11 +90,18 @@ app.listen(PORT, async () => {
   console.log(`🚀 APUIC Capital Backend running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   
-  // Test database connection
-  await testConnection();
+  // Test database connection (non-blocking - log errors but don't crash)
+  testConnection().catch(err => {
+    console.error('⚠️ Database connection warning (non-fatal):', err.message);
+  });
   
-  // Start cron jobs
-  startVIPEarningsJob();
+  // Start cron jobs (non-blocking)
+  try {
+    startVIPEarningsJob();
+    console.log('✅ VIP earnings job started');
+  } catch (err: any) {
+    console.error('⚠️ Cron job warning (non-fatal):', err.message);
+  }
 });
 
 export default app;
