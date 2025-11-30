@@ -128,7 +128,7 @@ export interface ReferralCommission {
 export interface Transaction {
   id: string;
   user_id: string;
-  type: 'deposit' | 'withdrawal' | 'earning' | 'commission' | 'bonus' | 'vip_purchase';
+  type: 'deposit' | 'withdrawal' | 'earning' | 'commission' | 'bonus' | 'vip_purchase' | 'manual_credit' | 'manual_debit';
   amount: number;
   status: 'pending' | 'approved' | 'rejected' | 'completed';
   description?: string;

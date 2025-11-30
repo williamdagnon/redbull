@@ -135,13 +135,20 @@ export class UserService {
       );
 
       // Reload wallet to get updated balance
-      wallet = await queryOne<Wallet>(
+      const reloadedWallet = await queryOne<Wallet>(
         'SELECT * FROM wallets WHERE user_id = ?',
         [userId]
       );
+      if (reloadedWallet) {
+        wallet = reloadedWallet;
+      }
     } catch (err) {
       console.error('Failed to credit welcome bonus:', err);
       // Do not throw - bonus failure should not block signup
+    }
+
+    if (!wallet) {
+      throw new Error('Failed to get wallet after signup');
     }
 
     return { user, wallet };
