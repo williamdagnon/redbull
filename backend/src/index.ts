@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-
 import authRoutes from './routes/auth.routes';
 import setupRoutes from './routes/setup.routes';
 import vipRoutes from './routes/vip.routes';
@@ -13,102 +12,57 @@ import rechargeRoutes from './routes/recharge.routes';
 import inpayRoutes from './routes/inpay.routes';
 import giftRoutes from './routes/gift.routes';
 
-import { startVIPEarningsJob } from './jobs/vip-earnings.job';
-import { testConnection } from './config/database';
-
 dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 4000 || 3001;
 
-/* ================================
-   🔴 PORT RAILWAY – OBLIGATOIRE
-================================= */
-const PORT = process.env.PORT;
-
-if (!PORT) {
-  console.error('❌ ERROR: process.env.PORT is not defined');
-  process.exit(1);
-}
-
-/* ================================
-   🟡 CORS CONFIGURATION
-================================= */
-const corsOptions: cors.CorsOptions = {
-  origin: (origin, callback) => {
-    // Autorise toutes les origines Railway + Localhost
-    if (!origin) return callback(null, true);
-
-    const allowed = [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'https://tender-charm-production-865b.up.railway.app'
-    ];
-
-    if (allowed.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Autorise tous pour l’instant (dev)
-    }
-  },
+// Middleware - CORS Configuration
+// Allow CORS from all origins - authentication is handled via JWT tokens
+const corsOptions = {
+  origin: true, // Allow all origins
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200,
 };
 
-/* ================================
-   🟢 MIDDLEWARES
-================================= */
 app.use(cors(corsOptions));
 
-// Répond correctement aux requêtes OPTIONS (preflight)
+// Handle preflight requests explicitly
 app.options('*', cors(corsOptions));
-
-app.use(express.json({
-  verify: (req: any, res, buf: Buffer) => {
-    if (buf && buf.length) {
-      req.rawBody = buf.toString('utf8');
-    }
-  }
-}));
-
-app.use(express.urlencoded({ extended: true }));
-
-// Sécurité CORS supplémentaire (fallback)
+// Explicit CORS headers middleware (fallback) — ensures headers are present
 app.use((req, res, next) => {
-  const origin = req.headers.origin || '*';
-
-  res.header('Access-Control-Allow-Origin', origin);
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header(
-    'Access-Control-Allow-Headers',
-    'Origin,Content-Type,Accept,Authorization,X-Requested-With'
-  );
-  res.header(
-    'Access-Control-Allow-Methods',
-    'GET, POST, PUT, DELETE, PATCH, OPTIONS'
-  );
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  try {
+    const origin = req.headers.origin as string | undefined;
+    const allowOrigin = process.env.FRONTEND_URL || origin || '*';
+    res.header('Access-Control-Allow-Origin', allowOrigin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    // Short-circuit OPTIONS
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+  } catch (e) {
+    // ignore
   }
-
   next();
 });
+// Capture raw body on JSON parse so payment callbacks can be signature-verified
+app.use(express.json({
+  verify: (req: any, res, buf: Buffer) => {
+    if (buf && buf.length) req.rawBody = buf.toString('utf8');
+  }
+}));
+app.use(express.urlencoded({ extended: true }));
 
-/* ================================
-   🔵 HEALTH CHECK
-================================= */
+// Health check
 app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    service: 'APUIC Capital Backend',
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-/* ================================
-   🔵 ROUTES
-================================= */
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/setup', setupRoutes);
 app.use('/api/vip', vipRoutes);
@@ -120,42 +74,32 @@ app.use('/api/recharge', rechargeRoutes);
 app.use('/api/inpay', inpayRoutes);
 app.use('/api/gift', giftRoutes);
 
-/* ================================
-   🔴 ERROR HANDLER
-================================= */
+// Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('❌ API ERROR:', err);
-
+  console.error('Error:', err);
   res.status(err.status || 500).json({
     success: false,
     error: err.message || 'Internal server error'
   });
 });
 
-/* ================================
-   🟢 SERVER START
-================================= */
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`🚀 API RUNNING ON PORT: ${PORT}`);
-  console.log(`🌍 ENV: ${process.env.NODE_ENV || 'development'}`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-  // NON BLOQUANT (ne peut plus casser ton serveur)
-  setTimeout(() => {
-
-    testConnection()
-      .then(() => console.log('✅ Database connected'))
-      .catch(err => console.error('⚠️ Database warning:', err.message));
-
-    try {
-      startVIPEarningsJob();
-      console.log('✅ VIP job started');
-    } catch (err: any) {
-      console.error('⚠️ VIP job warning:', err.message);
-    }
-
-  }, 3000);
+// Start server
+app.listen(PORT, async () => {
+  console.log(`🚀 APUIC Capital Backend running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Test database connection (non-blocking - log errors but don't crash)
+  testConnection().catch(err => {
+    console.error('⚠️ Database connection warning (non-fatal):', err.message);
+  });
+  
+  // Start cron jobs (non-blocking)
+  try {
+    startVIPEarningsJob();
+    console.log('✅ VIP earnings job started');
+  } catch (err: any) {
+    console.error('⚠️ Cron job warning (non-fatal):', err.message);
+  }
 });
 
 export default app;
