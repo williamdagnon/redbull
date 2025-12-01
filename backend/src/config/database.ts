@@ -3,138 +3,119 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-/**
- * ✅ Vérification des variables critiques
- */
-const requiredVars = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
-
-for (const v of requiredVars) {
-  if (!process.env[v]) {
-    console.error(`❌ Missing env variable: ${v}`);
-  }
-}
-
 const dbConfig = {
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT || process.env.MYSQL_PORT || 3306),
+  host: process.env.DB_HOST || '127.0.0.1',
+  port: parseInt(process.env.DB_PORT || process.env.MYSQL_PORT || '3306'),
   user: process.env.DB_USER || process.env.MYSQL_USER || 'root',
-  password: process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD,
-  database: process.env.DB_NAME || process.env.MYSQL_DATABASE,
-
+  password: process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || '',
+  database: process.env.DB_NAME || process.env.MYSQL_DATABASE || 'apuic_capital',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-
-  connectTimeout: 15000,    // ✅ important pour Railway
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0,
-
-  timezone: 'Z'
+  timezone: 'Z',
 };
-
 
 export const pool = mysql.createPool(dbConfig);
 
-
-/**
- * ✅ Retry automatique (important pour Railway)
- */
-export const testConnection = async (retries = 5): Promise<boolean> => {
+export const testConnection = async (): Promise<boolean> => {
   try {
-    console.log("🔄 Testing MySQL connection...");
     const conn = await pool.getConnection();
-    await conn.query('SELECT 1');
+    await conn.query('SELECT NOW()');
     conn.release();
     console.log('✅ MySQL connection established');
     return true;
-
-  } catch (error: any) {
-    console.error('❌ MySQL connection failed:', error.message);
-
-    if (retries <= 0) {
-      console.error("🔥 MySQL unreachable after several retries");
-      throw error;
-    }
-
-    console.log(`Retrying... (${retries}) in 3s`);
-    await new Promise(res => setTimeout(res, 3000));
-    return testConnection(retries - 1);
+  } catch (error) {
+    console.error('❌ MySQL connection failed:', error);
+    return false;
   }
 };
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * ========================
- * CORE QUERY FUNCTIONS
- * ========================
+ * Try to establish a DB connection with retries and exponential backoff.
+ * Returns true if a connection was established, false otherwise.
  */
+export const ensureConnection = async (maxAttempts = 5, initialDelayMs = 1000): Promise<boolean> => {
+  let attempt = 0;
+  let delay = initialDelayMs;
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      const conn = await pool.getConnection();
+      await conn.query('SELECT 1');
+      conn.release();
+      console.log(`✅ MySQL connection established (attempt ${attempt})`);
+      return true;
+    } catch (err: any) {
+      console.warn(`⚠️ MySQL connection attempt ${attempt} failed: ${err?.code || err?.message || err}`);
+      if (attempt >= maxAttempts) break;
+      console.log(`⏳ Waiting ${delay}ms before retrying...`);
+      // exponential backoff
+      await sleep(delay);
+      delay *= 2;
+    }
+  }
+  console.error(`❌ MySQL connection failed after ${maxAttempts} attempts`);
+  return false;
+};
 
 export const query = async <T = any>(sql: string, params?: any[]): Promise<T[]> => {
   let normalizedSql = sql;
-
   try {
+    // Normalize Postgres-style placeholders ($1, $2, ...) to MySQL `?`
     normalizedSql = sql.replace(/\$[0-9]+/g, '?');
     const [rows] = await pool.query(normalizedSql, params || []);
     return rows as T[];
-
   } catch (error) {
-    console.error('❌ Query error:', error);
-    console.error('SQL:', normalizedSql);
-    if (params?.length) console.error('Params:', params);
+    console.error('Query error:', error);
+    console.error('Query SQL:', normalizedSql);
+    if (params && params.length) console.error('Query params:', params);
     throw error;
   }
 };
 
-
 export const queryOne = async <T = any>(sql: string, params?: any[]): Promise<T | null> => {
-  const rows = await query<T>(sql, params || []);
-  return rows.length ? rows[0] : null;
+  try {
+    const rows = await query<T>(sql, params || []);
+    return rows.length > 0 ? rows[0] : null;
+  } catch (error) {
+    console.error('QueryOne error:', error);
+    throw error;
+  }
 };
 
-
-export const execute = async (
-  sql: string,
-  params?: any[]
-): Promise<{ affectedRows: number; insertId?: string | number }> => {
-
+export const execute = async (sql: string, params?: any[]): Promise<{ affectedRows: number; insertId?: string | number }> => {
   let normalizedSql = sql;
-
   try {
+    // Normalize Postgres-style placeholders ($1, $2, ...) to MySQL `?`
     normalizedSql = sql.replace(/\$[0-9]+/g, '?');
     const [result]: any = await pool.execute(normalizedSql, params || []);
-
     return {
       affectedRows: result.affectedRows || 0,
       insertId: result.insertId
     };
-
   } catch (error) {
-    console.error('❌ Execute error:', error);
-    console.error('SQL:', normalizedSql);
-    if (params?.length) console.error('Params:', params);
+    console.error('Execute error:', error);
+    console.error('Execute SQL:', normalizedSql);
+    if (params && params.length) console.error('Execute params:', params);
     throw error;
   }
 };
 
-
 export const transaction = async <T>(callback: (conn: mysql.PoolConnection) => Promise<T>): Promise<T> => {
   const conn = await pool.getConnection();
-
   try {
     await conn.beginTransaction();
     const result = await callback(conn);
     await conn.commit();
     return result;
-
   } catch (error) {
     await conn.rollback();
-    console.error('❌ Transaction failed, rollback executed');
     throw error;
-
   } finally {
     conn.release();
   }
 };
-
 
 export default pool;
