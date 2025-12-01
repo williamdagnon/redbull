@@ -11,11 +11,14 @@ import adminRoutes from './routes/admin.routes';
 import rechargeRoutes from './routes/recharge.routes';
 import inpayRoutes from './routes/inpay.routes';
 import giftRoutes from './routes/gift.routes';
+import { startVIPEarningsJob } from './jobs/vip-earnings.job';
+import { testConnection } from './config/database';
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 4000 || 3001;
+const PORT = process.env.PORT || 3001;
+const disableJobs = (process.env.RAILWAY_DISABLE_JOBS === 'true') || (process.env.RAILWAY_DEBUG === 'true');
 
 // Middleware - CORS Configuration
 // Allow CORS from all origins - authentication is handled via JWT tokens
@@ -89,16 +92,20 @@ app.listen(PORT, async () => {
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   
   // Test database connection (non-blocking - log errors but don't crash)
-  testConnection().catch(err => {
-    console.error('⚠️ Database connection warning (non-fatal):', err.message);
+  testConnection().catch((err: any) => {
+    console.error('⚠️ Database connection warning (non-fatal):', err?.message || err);
   });
   
-  // Start cron jobs (non-blocking)
-  try {
-    startVIPEarningsJob();
-    console.log('✅ VIP earnings job started');
-  } catch (err: any) {
-    console.error('⚠️ Cron job warning (non-fatal):', err.message);
+  // Start cron jobs (non-blocking) — skip if debug flag set
+  if (disableJobs) {
+    console.log('⏸️ Cron jobs disabled (RAILWAY_DISABLE_JOBS/RAILWAY_DEBUG)');
+  } else {
+    try {
+      startVIPEarningsJob();
+      console.log('✅ VIP earnings job started');
+    } catch (err: any) {
+      console.error('⚠️ Cron job warning (non-fatal):', err.message);
+    }
   }
 });
 
